@@ -68,24 +68,49 @@ def markdown_to_plaintext(text):
     return text
 
 # 模型注册表JSON文件路径 - 保持在原目录，不移动到Qwen/Qwen目录
-MODEL_REGISTRY_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qwen_model_registry.json")
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_REGISTRY_JSON = os.path.join(CURRENT_DIR, "qwen_model_registry.json")
+USER_MODEL_REGISTRY_JSON = os.path.join(CURRENT_DIR, "qwen_model_registry_user.json")
+
+def load_json_file(path, description):
+    """Helper function to safely load JSON file"""
+    try:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"错误: 解析{description}JSON文件时出错: {e} | "
+              f"Error: Failed to parse {description} JSON file: {e}")
+    except Exception as e:
+        print(f"错误: 读取{description}时出错: {e} | "
+              f"Error reading {description}: {e}")
+    return {}
 
 def load_model_registry():
-    """从JSON文件加载模型注册表
-    Load model registry from JSON file"""
-    try:
-        if os.path.exists(MODEL_REGISTRY_JSON):
-            with open(MODEL_REGISTRY_JSON, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        else:
-            # 如果文件不存在，创建一个空的注册表
-            print(f"模型注册表文件 {MODEL_REGISTRY_JSON} 不存在，将使用空注册表 | "
-                  f"Model registry file {MODEL_REGISTRY_JSON} does not exist, using empty registry")
-            return {}
-    except json.JSONDecodeError as e:
-        print(f"错误: 解析模型注册表JSON文件时出错: {e} | "
-              f"Error: Failed to parse model registry JSON file: {e}")
-        return {}
+    """从JSON文件加载模型注册表，并合并用户自定义配置
+    Load model registry from JSON files and merge user custom configurations"""
+    
+    # 1. Load main registry
+    registry = load_json_file(MODEL_REGISTRY_JSON, "主模型注册表 (Main Registry)")
+    
+    if not registry and not os.path.exists(MODEL_REGISTRY_JSON):
+        print(f"模型注册表文件 {MODEL_REGISTRY_JSON} 不存在，将使用空注册表 | "
+              f"Model registry file {MODEL_REGISTRY_JSON} does not exist, using empty registry")
+
+    # 2. Load user registry
+    if os.path.exists(USER_MODEL_REGISTRY_JSON):
+        user_registry = load_json_file(USER_MODEL_REGISTRY_JSON, "用户注册表 (User Registry)")
+        
+        if user_registry:
+            # Merge: User data overrides original
+            count_before = len(registry)
+            registry.update(user_registry)
+            print(f"已加载并合并用户自定义模型配置: {USER_MODEL_REGISTRY_JSON} | "
+                  f"Loaded and merged user custom model configs: {USER_MODEL_REGISTRY_JSON}")
+            print(f"模型总数: {count_before} -> {len(registry)} | "
+                  f"Total models: {count_before} -> {len(registry)}")
+    
+    return registry
 
 # 加载模型注册表
 MODEL_REGISTRY = load_model_registry()
@@ -277,7 +302,7 @@ def init_qwen_paths(model_name):
     
     print(f"模型路径已初始化: {model_dir} | "
           f"Model path initialized: {model_dir}")
-    return str(model_dir)  # 修改：返回模型目录路径，而不是父目录 | Return model directory path instead of parent directory
+    return str(model_dir)  # Return model directory path instead of parent directory
 
 def test_download_speed(url):
     """测试下载速度，下载 5 秒
@@ -345,7 +370,7 @@ class QwenTextProcessor:
     def __init__(self):
         # 默认使用注册表中的第一个默认模型
         default_model = next((name for name, info in MODEL_REGISTRY.items() if info.get("default", False)), 
-                            list(MODEL_REGISTRY.keys())[0])       
+                             list(MODEL_REGISTRY.keys())[0])       
 
         # 重置环境变量，避免干扰
         os.environ.pop("HUGGINGFACE_HUB_CACHE", None)   
@@ -474,11 +499,15 @@ class QwenTextProcessor:
         self.current_quantization = adjusted_quantization
 
         # 检查模型文件是否存在且完整
+        # Check if model files exist and are complete
         if not validate_model_path(self.model_path, self.current_model_name):
             print(f"检测到模型文件缺失，正在为你下载 {model_name} 模型，请稍候... | "
                   f"Model files detected missing, downloading {model_name} model, please wait...")
             print(f"下载将保存在: {self.model_path} | "
                   f"Download will be saved to: {self.model_path}")
+            
+            # --- FIX HERE: Initialize variables before try block ---
+            used_cache_path = None 
             
             # 开始下载逻辑
             try:
@@ -515,7 +544,7 @@ class QwenTextProcessor:
                 max_retries = 3
                 success = False
                 final_error = None
-                used_cache_path = None
+                # used_cache_path = None  <-- Deleted here, moved up
 
                 for download_func, repo_id, source in download_sources:
                     for retry in range(max_retries):
@@ -559,12 +588,12 @@ class QwenTextProcessor:
                         break
                 else:
                     raise RuntimeError("从所有源下载模型均失败。 | "
-                                      "Failed to download model from all sources.")
+                                     "Failed to download model from all sources.")
                 
                 # 下载完成后再次验证
                 if not validate_model_path(self.model_path, self.current_model_name):
                     raise RuntimeError(f"下载后模型文件仍不完整: {self.model_path} | "
-                                      f"Model files still incomplete after download: {self.model_path}")
+                                     f"Model files still incomplete after download: {self.model_path}")
                 
                 print(f"模型 {model_name} 已准备就绪 | "
                       f"Model {model_name} is ready")
@@ -644,7 +673,7 @@ class QwenTextProcessor:
         # 准备加载参数
         load_kwargs = {
             "device_map": device_map,
-            "torch_dtype": load_dtype,
+            "dtype": load_dtype,
 
         }
 
@@ -652,15 +681,51 @@ class QwenTextProcessor:
         if quant_config is not None:
             load_kwargs["quantization_config"] = quant_config
 
-        # 创建文本生成pipeline - 使用self.model_path而不是model_name
-        self.model = pipeline(
-            "text-generation",
-            model=self.model_path,  # 使用本地路径而不是模型名称
+        # -----------------------------------------------------------
+        # FIX: Manual loading + GPU Diagnostics
+        # -----------------------------------------------------------
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        print(f"正在加载模型权重 (Loading model weights)...")
+
+        # Ensure device_map="auto" is used (automatically selects GPU)
+        if "device_map" not in load_kwargs:
+            load_kwargs["device_map"] = "auto"
+
+        # 1. Load model manually
+        model_obj = AutoModelForCausalLM.from_pretrained(
+            self.model_path,
             **load_kwargs
         )
+
+        # --- DIAGNOSTICS: Where is the model actually running? ---
+        try:
+            # Get the device of the first model parameter
+            first_param_device = next(model_obj.parameters()).device
+            print(f"\n🔍 DIAGNOSTIKA / DIAGNOSTICS:")
+            print(f"   Model running on: {first_param_device}")
+            
+            if "cuda" in str(first_param_device):
+                print("   ✅ GPU (CUDA) is ACTIVE. Generation should be fast.")
+            else:
+                print("   ⚠️ WARNING: Model is running on CPU! Generation will be very slow.")
+        except Exception as e:
+            print(f"   Diagnostic error: {e}")
+        # ---------------------------------------------
+
+        # 2. Load tokenizer manually
+        tokenizer_obj = AutoTokenizer.from_pretrained(self.model_path)
+
+        # 3. Create pipeline
+        self.model = pipeline(
+            "text-generation",
+            model=model_obj,
+            tokenizer=tokenizer_obj
+            # Do not add device=... here, as the model is already placed correctly
+        )
         
-        # 获取tokenizer
-        self.tokenizer = self.model.tokenizer
+        self.tokenizer = tokenizer_obj
+        # -----------------------------------------------------------
 
     def copy_cached_model_to_local(self, cached_path, target_path):
         """将缓存的模型文件复制到目标路径
@@ -821,10 +886,10 @@ class QwenMultiTurnConversation:
         return {
             "required": {
                 "model_name": (
-                   list(MODEL_REGISTRY.keys()),  # 动态生成模型选项 | Dynamically generate model options
+                    list(MODEL_REGISTRY.keys()),  # 动态生成模型选项 | Dynamically generate model options
                     {
                         "default": next((name for name, info in MODEL_REGISTRY.items() if info.get("default", False)), 
-                                       list(MODEL_REGISTRY.keys())[0]),
+                                        list(MODEL_REGISTRY.keys())[0]),
                         "tooltip": "选择可用的模型版本。 | Select the available model version."
                     }
                 ),
@@ -957,10 +1022,10 @@ class QwenSingleTurnGeneration:
         return {
             "required": {
                 "model_name": (
-                   list(MODEL_REGISTRY.keys()),  # 动态生成模型选项 | Dynamically generate model options
+                    list(MODEL_REGISTRY.keys()),  # 动态生成模型选项 | Dynamically generate model options
                     {
                         "default": next((name for name, info in MODEL_REGISTRY.items() if info.get("default", False)), 
-                                       list(MODEL_REGISTRY.keys())[0]),
+                                        list(MODEL_REGISTRY.keys())[0]),
                         "tooltip": "选择可用的模型版本。 | Select the available model version."
                     }
                 ),

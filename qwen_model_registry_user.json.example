@@ -1,0 +1,54 @@
+{
+"Qwen3-4B-2507-Thinking-heretic-abliterated-uncensored": {
+        "repo_id": {
+            "huggingface": "DavidAU/Qwen3-4B-2507-Thinking-heretic-abliterated-uncensored"
+        },
+        "required_files": [
+            "model-00001-of-00002.safetensors",
+            "model-00002-of-00002.safetensors",
+            "model.safetensors.index.json",
+            "config.json",
+            "generation_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "vocab.json",
+            "merges.txt",
+            "special_tokens_map.json",
+            "added_tokens.json"
+        ],
+        "test_file": "model-00001-of-00002.safetensors",
+        "default": false,
+        "quantized": false,
+        "vram_requirement": {
+            "full": 8.0,
+            "8bit": 6.0,
+            "4bit": 4.0
+        }
+    },
+"Josiefied-Qwen3-4B-abliterated-v2": {
+        "repo_id": {
+            "huggingface": "Goekdeniz-Guelmez/Josiefied-Qwen3-4B-abliterated-v2"
+        },
+        "required_files": [
+            "model-00001-of-00002.safetensors",
+            "model-00002-of-00002.safetensors",
+            "model.safetensors.index.json",
+            "config.json",
+            "generation_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "vocab.json",
+            "merges.txt",
+            "special_tokens_map.json",
+            "added_tokens.json"
+        ],
+        "test_file": "config.json",
+        "default": false,
+        "quantized": false,
+        "vram_requirement": {
+            "full": 8.0,
+            "8bit": 6.0,
+            "4bit": 4.0
+        }
+    }
+}
